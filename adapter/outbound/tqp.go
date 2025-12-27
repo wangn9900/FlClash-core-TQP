@@ -2,7 +2,6 @@ package outbound
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -70,25 +69,13 @@ func (t *TQP) dialTLS(ctx context.Context) (net.Conn, error) {
 		return nil, fmt.Errorf("failed to dial TCP: %w", err)
 	}
 
-	// Wrap with TLS
-	tlsConfig := &tls.Config{
-		ServerName:         sni,
-		InsecureSkipVerify: t.option.SkipCertVerify,
-		NextProtos:         t.option.ALPN,
-	}
-
-	// Apply fingerprint if specified
-	if t.option.ClientFingerprint != "" {
-		utlsConfig, err := vmess.GetUTLSConfig(tlsConfig, t.option.ClientFingerprint)
-		if err != nil {
-			tcpConn.Close()
-			return nil, err
-		}
-		return vmess.DialTLSWithFingerprint(ctx, tcpConn, utlsConfig)
-	}
-
-	tlsConn := tls.Client(tcpConn, tlsConfig)
-	err = tlsConn.HandshakeContext(ctx)
+	// Use vmess.StreamTLSConn for TLS with optional fingerprint
+	tlsConn, err := vmess.StreamTLSConn(ctx, tcpConn, &vmess.TLSConfig{
+		Host:              sni,
+		SkipCertVerify:    t.option.SkipCertVerify,
+		ClientFingerprint: t.option.ClientFingerprint,
+		NextProtos:        t.option.ALPN,
+	})
 	if err != nil {
 		tcpConn.Close()
 		return nil, fmt.Errorf("TLS handshake failed: %w", err)
